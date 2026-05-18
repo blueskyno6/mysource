@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>SO Analyzer Desktop</title>
+  </head>
+  <body style="font-family: sans-serif; padding: 20px; max-width: 980px; margin: auto;">
+    <h2>SO Analyzer Desktop</h2>
+    <p>后端地址默认：<code>http://127.0.0.1:8000</code></p>
+
+    <button id="pick">选择 APK/SO 文件</button>
+    <button id="health">检查后端健康</button>
+    <pre id="file"></pre>
+
+    <h3>结果</h3>
+    <pre id="out" style="background:#111;color:#d7f7d7;padding:12px;min-height:280px;white-space:pre-wrap;"></pre>
+
+    <script>
+      const base = 'http://127.0.0.1:8000';
+      let selected = null;
+
+      const out = (obj) => {
+        document.getElementById('out').textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+      };
+
+      document.getElementById('health').onclick = async () => {
+        try {
+          const r = await fetch(`${base}/health`);
+          out(await r.json());
+        } catch (e) {
+          out('后端未启动: ' + e.message);
+        }
+      };
+
+      async function analyze(path) {
+        if (path.endsWith('.so')) {
+          const r = await fetch(`${base}/analyze-so`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ so_path: path })
+          });
+          out(await r.json());
+        } else if (path.endsWith('.apk')) {
+          const fd = new FormData();
+          const blob = new Blob([await window.fs.readFile(path)]);
+          fd.append('file', blob, path.split('/').pop());
+          const r = await fetch(`${base}/upload-apk`, { method: 'POST', body: fd });
+          const meta = await r.json();
+          if (meta.apk_hash) {
+            const rr = await fetch(`${base}/report/${meta.apk_hash}`);
+            out(await rr.json());
+          } else {
+            out(meta);
+          }
+        } else {
+          out('仅支持 .apk 或 .so');
+        }
+      }
+
+      document.getElementById('pick').onclick = async () => {
+        selected = await window.api.pickFile();
+        document.getElementById('file').textContent = JSON.stringify(selected, null, 2) || '取消';
+        if (selected?.file) {
+          try {
+            await analyze(selected.file);
+          } catch (e) {
+            out('分析失败: ' + e.message);
+          }
+        }
+      }
+
+      window.fs = {
+        readFile: (p) => fetch(`file://${p}`).then(() => { throw new Error('浏览器安全策略限制，请改用后端本地路径分析或后续接入IPC读取'); })
+      }
+    </script>
+  </body>
+</html>
